@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人狼ゲーム</title>
+    <style>
+        /* 全体のスタイル */
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            color: #fff;
+            background: radial-gradient(circle, #300000, #000000);
+        }
+
+        #game-container {
+            max-width: 600px;
+            text-align: center;
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 2px solid #660000;
+            border-radius: 10px;
+        }
+
+        /* ボタンのスタイル */
+        button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 10px 0;
+            font-size: 1.2em;
+            color: #ffffff;
+            background-color: #660000;
+            border: 2px solid #440000;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        /* ボタン中央配置 */
+        button {
+            margin: 10px auto;
+        }
+
+        /* ボタンのホバースタイル */
+        button:hover {
+            background-color: #880000;
+            border-color: #550000;
+        }
+
+        /* タイトルとサブタイトル */
+        h1, h2 {
+            font-family: "Trebuchet MS", sans-serif;
+            color: #ffdddd;
+            text-shadow: 2px 2px 6px #330000;
+        }
+
+        p {
+            font-size: 1em;
+            line-height: 1.6;
+        }
+
+        /* メッセージ、ボタン等を中央配置 */
+        #vote-message, #night-message, #confirmation-message, #result-message {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #ffcccc;
+            text-shadow: 1px 1px 4px #440000;
+        }
+
+        /* 各セクションの非表示 */
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>人狼ゲーム</h1>
+        <div id="opening">
+            <button onclick="startNameRegistration()">ゲームを始める</button>
+        </div>
+        <div id="name-registration" class="hidden">
+            <h2>名前登録</h2>
+            <input type="text" id="player-name" placeholder="名前を入力">
+            <button onclick="registerName()">登録</button>
+            <ul id="player-list"></ul>
+            <button onclick="startRoleAssignment()">次へ</button>
+        </div>
+        <div id="role-assignment" class="hidden">
+            <h2>役職確認</h2>
+            <div id="player-confirmation">
+                <p id="confirmation-message"></p>
+                <button onclick="confirmPlayer()">はい</button>
+            </div>
+            <div id="role-view" class="hidden">
+                <p id="role-message"></p>
+                <button onclick="nextPlayerRole()">OK</button>
+            </div>
+        </div>
+        <div id="game" class="hidden">
+            <h2>ゲーム進行中</h2>
+            <p>現在のプレイヤーリスト:</p>
+            <ul id="active-players-list"></ul>
+            <button onclick="startVoting()">投票ターン</button>
+        </div>
+        <div id="vote-section" class="hidden">
+            <h2>投票</h2>
+            <p id="vote-message"></p>
+            <div id="vote-options"></div>
+        </div>
+        <div id="night-turn" class="hidden">
+            <h2>夜のターン</h2>
+            <p id="night-message"></p>
+            <div id="night-options"></div>
+        </div>
+        <div id="confirm-night-actions" class="hidden">
+            <h2>夜の行動確認</h2>
+            <button onclick="confirmNightActions()">全員の行動が終了しました</button>
+        </div>
+        <div id="result" class="hidden">
+            <h2>結果</h2>
+            <p id="result-message"></p>
+        </div>
+    </div>
+
+    <script>
+        let players = [];
+        let roles = ["人狼", "騎士", "占い師", "霊媒師"];
+        let playerRoles = {};
+        let currentPlayerIndex = 0;
+        let votes = {};
+        let votedOutPlayer = null;
+        let eliminatedPlayers = [];
+        let previousEliminatedPlayers = []; // 霊媒師用の追放リスト
+        let wolfSelection = null;
+        let knightSelection = null;
+
+        function startNameRegistration() {
+            document.getElementById('opening').classList.add('hidden');
+            document.getElementById('name-registration').classList.remove('hidden');
+        }
+
+        function registerName() {
+            const name = document.getElementById('player-name').value;
+            if (name) {
+                players.push(name);
+                document.getElementById('player-name').value = '';
+                updatePlayerList();
+            }
+        }
+
+        function updatePlayerList() {
+            const playerList = document.getElementById('player-list');
+            playerList.innerHTML = '';
+            players.forEach((player, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${index + 1}. ${player}`;
+                playerList.appendChild(li);
+            });
+        }
+
+        function startRoleAssignment() {
+            document.getElementById('name-registration').classList.add('hidden');
+            document.getElementById('role-assignment').classList.remove('hidden');
+            assignRoles();
+            startPlayerConfirmation();
+        }
+
+        function assignRoles() {
+            const shuffledRoles = [...roles, ...Array(players.length - roles.length).fill("市民")].sort(() => Math.random() - 0.5);
+            players.forEach((player, index) => {
+                playerRoles[player] = shuffledRoles[index];
+            });
+        }
+
+        function startPlayerConfirmation() {
+            const playerName = players[currentPlayerIndex];
+            document.getElementById('confirmation-message').textContent = `${playerName}さんですか？`;
+            document.getElementById('player-confirmation').classList.remove('hidden');
+            document.getElementById('role-view').classList.add('hidden');
+        }
+
+        function confirmPlayer() {
+            document.getElementById('player-confirmation').classList.add('hidden');
+            document.getElementById('role-view').classList.remove('hidden');
+            showPlayerRole();
+        }
+
+        function showPlayerRole() {
+            const playerName = players[currentPlayerIndex];
+            document.getElementById('role-message').textContent = `${playerName}さんの役職は「${playerRoles[playerName]}」です`;
+        }
+
+        function nextPlayerRole() {
+            currentPlayerIndex++;
+            if (currentPlayerIndex < players.length) {
+                startPlayerConfirmation();
+            } else {
+                document.getElementById('role-assignment').classList.add('hidden');
+                document.getElementById('game').classList.remove('hidden');
+                updateActivePlayersList();
+                currentPlayerIndex = 0;
+            }
+        }
+
+        function updateActivePlayersList() {
+            const activePlayersList = document.getElementById('active-players-list');
+            activePlayersList.innerHTML = '';
+            players.forEach(player => {
+                if (!eliminatedPlayers.includes(player)) {
+                    const li = document.createElement('li');
+                    li.textContent = player;
+                    activePlayersList.appendChild(li);
+                }
+            });
+        }
+
+        function startVoting() {
+            document.getElementById('game').classList.add('hidden');
+            document.getElementById('vote-section').classList.remove('hidden');
+            votes = {};
+            currentPlayerIndex = 0;
+            showVoteOptions();
+        }
+
+        function showVoteOptions() {
+            const currentPlayer = players[currentPlayerIndex];
+            if (eliminatedPlayers.includes(currentPlayer)) {
+                currentPlayerIndex++;
+                if (currentPlayerIndex < players.length) {
+                    showVoteOptions();
+                } else {
+                    tallyVotes();
+                }
+                return;
+            }
+
+            document.getElementById('vote-message').textContent = `${currentPlayer}さん、投票してください:`;
+            const voteOptions = document.getElementById('vote-options');
+            voteOptions.innerHTML = '';
+            players.forEach(player => {
+                if (!eliminatedPlayers.includes(player)) {
+                    const button = document.createElement('button');
+                    button.textContent = player;
+                    button.onclick = () => castVote(player);
+                    voteOptions.appendChild(button);
+                }
+            });
+        }
+
+        function castVote(votedPlayer) {
+            const currentPlayer = players[currentPlayerIndex];
+            votes[votedPlayer] = (votes[votedPlayer] || 0) + 1;
+            currentPlayerIndex++;
+
+            if (currentPlayerIndex < players.length) {
+                showVoteOptions();
+            } else {
+                tallyVotes();
+            }
+        }
+
+        function tallyVotes() {
+            const maxVotes = Math.max(...Object.values(votes));
+            votedOutPlayer = Object.keys(votes).find(player => votes[player] === maxVotes);
+
+            alert(`${votedOutPlayer}が追放されました。`);
+            eliminatedPlayers.push(votedOutPlayer);
+            previousEliminatedPlayers.push(votedOutPlayer); // 霊媒師用のリストに追加
+            updateActivePlayersList();
+            checkGameOver();
+            document.getElementById('vote-section').classList.add('hidden');
+            startNightTurn();
+        }
+
+        function startNightTurn() {
+            document.getElementById('game').classList.add('hidden');
+            document.getElementById('night-turn').classList.remove('hidden');
+            currentPlayerIndex = 0;
+            wolfSelection = null;
+            knightSelection = null;
+            nightTurnConfirmation();
+        }
+
+        function nightTurnConfirmation() {
+            const currentPlayer = players[currentPlayerIndex];
+            if (eliminatedPlayers.includes(currentPlayer)) {
+                currentPlayerIndex++;
+                if (currentPlayerIndex < players.length) {
+                    nightTurnConfirmation();
+                } else {
+                    endNightTurn();
+                }
+                return;
+            }
+
+            document.getElementById('night-message').textContent = `${currentPlayer}さん、役職を確認してください。`;
+            const confirmButton = document.createElement('button');
+            confirmButton.textContent = '確認する';
+            confirmButton.onclick = () => showNightOptions(currentPlayer);
+            document.getElementById('night-options').innerHTML = '';
+            document.getElementById('night-options').appendChild(confirmButton);
+        }
+
+        function showNightOptions(currentPlayer) {
+            const role = playerRoles[currentPlayer];
+            document.getElementById('night-message').textContent = `${currentPlayer}さんの役職は「${role}」です。`;
+            document.getElementById('night-options').innerHTML = '';
+
+            switch (role) {
+                case "人狼":
+                    players.forEach(player => {
+                        if (!eliminatedPlayers.includes(player) && player !== currentPlayer) {
+                            const button = document.createElement('button');
+                            button.textContent = `狙う: ${player}`;
+                            button.onclick = () => { wolfSelection = player; endNightTurn(); };
+                            document.getElementById('night-options').appendChild(button);
+                        }
+                    });
+                    break;
+                case "騎士":
+                    players.forEach(player => {
+                        if (!eliminatedPlayers.includes(player) && player !== currentPlayer) {
+                            const button = document.createElement('button');
+                            button.textContent = `守る: ${player}`;
+                            button.onclick = () => { knightSelection = player; endNightTurn(); };
+                            document.getElementById('night-options').appendChild(button);
+                        }
+                    });
+                    break;
+                case "占い師":
+                    players.forEach(player => {
+                        if (!eliminatedPlayers.includes(player) && player !== currentPlayer) {
+                            const button = document.createElement('button');
+                            button.textContent = `占う: ${player}`;
+                            button.onclick = () => { alert(`${player}の役職は「${playerRoles[player]}」です。`); endNightTurn(); };
+                            document.getElementById('night-options').appendChild(button);
+                        }
+                    });
+                    break;
+                case "霊媒師":
+                    if (previousEliminatedPlayers.length > 0) {  // 前のターンまでに追放されたプレイヤーのみ表示
+                        previousEliminatedPlayers.forEach(player => {
+                            const button = document.createElement('button');
+                            button.textContent = `霊媒: ${player}`;
+                            button.onclick = () => { alert(`${player}の役職は「${playerRoles[player]}」です。`); endNightTurn(); };
+                            document.getElementById('night-options').appendChild(button);
+                        });
+                    } else {
+                        const skipButton = document.createElement('button');
+                        skipButton.textContent = '何もしない';
+                        skipButton.onclick = () => endNightTurn();
+                        document.getElementById('night-options').appendChild(skipButton);
+                    }
+                    break;
+                default:
+                    const skipButton = document.createElement('button');
+                    skipButton.textContent = '何もしない';
+                    skipButton.onclick = () => endNightTurn();
+                    document.getElementById('night-options').appendChild(skipButton);
+            }
+        }
+
+        function endNightTurn() {
+            currentPlayerIndex++;
+            if (currentPlayerIndex < players.length) {
+                nightTurnConfirmation();
+            } else {
+                document.getElementById('night-turn').classList.add('hidden');
+                document.getElementById('confirm-night-actions').classList.remove('hidden');
+            }
+        }
+
+        function confirmNightActions() {
+            document.getElementById('confirm-night-actions').classList.add('hidden');
+            if (wolfSelection === knightSelection) {
+                alert(`騎士が${wolfSelection}を守りました！`);
+            } else if (wolfSelection) {
+                alert(`${wolfSelection}が追放されました。`);
+                eliminatedPlayers.push(wolfSelection);
+                previousEliminatedPlayers.push(wolfSelection); // 追放されたプレイヤーを霊媒師のリストに追加
+            }
+            updateActivePlayersList();
+            checkGameOver();
+            document.getElementById('game').classList.remove('hidden');
+        }
+
+        function checkGameOver() {
+            const remainingPlayers = players.filter(player => !eliminatedPlayers.includes(player));
+            const werewolves = remainingPlayers.filter(player => playerRoles[player] === "人狼");
+            const villagers = remainingPlayers.filter(player => playerRoles[player] !== "人狼");
+
+            if (werewolves.length === 0) {
+                alert("市民の勝利です！");
+                resetGame();
+            } else if (werewolves.length >= villagers.length) {
+                alert("人狼の勝利です！");
+                resetGame();
+            }
+        }
+
+        function resetGame() {
+            players = [];
+            playerRoles = {};
+            eliminatedPlayers = [];
+            previousEliminatedPlayers = [];
+            document.getElementById('game-container').innerHTML = `
+                <h1>人狼ゲーム</h1>
+                <div id="opening">
+                    <button onclick="startNameRegistration()">ゲームを始める</button>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
